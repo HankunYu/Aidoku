@@ -836,10 +836,14 @@ extension AppDelegate: ImagePipeline.Delegate {
     nonisolated func imageDecoder(for context: ImageDecodingContext, pipeline: ImagePipeline) -> (any ImageDecoding)? {
         if context.request.userInfo[.processesKey] as? Bool == true {
             // when using a page processor, don't decode data as an image since it may be invalid
-            ImageDecoders.Empty.init()
-        } else {
-            pipeline.configuration.makeImageDecoder(context)
+            return ImageDecoders.Empty.init()
         }
+        let decoder = pipeline.configuration.makeImageDecoder(context)
+        if let decoder = decoder as? ImageDecoders.Default {
+            // keep original data for animated images so they can be played back
+            return AnimatedImageDecoder(decoder: decoder)
+        }
+        return decoder
     }
 }
 

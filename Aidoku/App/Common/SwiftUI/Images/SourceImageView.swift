@@ -38,7 +38,7 @@ struct SourceImageView: View {
             request: imageRequest,
             transaction: .init(animation: .default)
         ) { state in
-            if state.imageContainer?.type == .gif, let data = state.imageContainer?.data {
+            if let data = state.imageContainer?.animatedImageData {
                 GIFImage(
                     data: data,
                     contentMode: contentMode

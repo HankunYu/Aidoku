@@ -6,7 +6,6 @@
 //
 
 import AidokuRunner
-import Gifu
 import Nuke
 import UIKit
 
@@ -43,7 +42,7 @@ class MangaListCell: UICollectionViewCell {
     }
 
     lazy var coverImageView = {
-        let imageView = GIFImageView()
+        let imageView = AnimatedImageView()
         imageView.image = UIImage(named: "MangaPlaceholder")
         imageView.clipsToBounds = true
         imageView.contentMode = .scaleAspectFill
@@ -159,6 +158,7 @@ class MangaListCell: UICollectionViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        coverImageView.stopAnimatingImage()
         coverImageView.image = UIImage(named: "MangaPlaceholder")
         imageTask?.cancel()
         imageTask = nil
@@ -273,7 +273,7 @@ extension MangaListCell {
             return
         }
 
-        self.coverImageView.stopAnimatingGIF()
+        self.coverImageView.stopAnimatingImage()
 
         let source: AidokuRunner.Source? = if let sourceKey = identifier?.sourceKey {
             await SourceManager.shared.source(for: sourceKey)
@@ -326,8 +326,8 @@ extension MangaListCell {
                                 self.coverImageView.image = response.image
                             }
                         }
-                        if response.container.type == .gif, let data = response.container.data {
-                            self.coverImageView.animate(withGIFData: data)
+                        if let data = response.container.animatedImageData {
+                            self.coverImageView.animate(withData: data)
                         }
                     }
                 case .failure(let error):

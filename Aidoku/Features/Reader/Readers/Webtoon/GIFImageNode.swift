@@ -6,11 +6,10 @@
 //
 
 import AsyncDisplayKit
-import Gifu
 import VisionKit
 
 class GIFImageNode: ASControlNode {
-    var imageView: GIFImageView?
+    var imageView: AnimatedImageView?
     var animatedData: Data?
     var storedInteractions: [UIInteraction] = []
 
@@ -43,14 +42,14 @@ class GIFImageNode: ASControlNode {
         super.init()
 
         setViewBlock { [weak self] in
-            let gifView = GIFImageView()
+            let gifView = AnimatedImageView()
             gifView.image = self?.image
             gifView.isUserInteractionEnabled = true
             if let contentMode = self?.contentMode {
                 gifView.contentMode = contentMode
             }
             if let data = self?.animatedData {
-                gifView.animate(withGIFData: data)
+                gifView.animate(withData: data)
                 self?.animatedData = nil
             }
             if let storedInteractions = self?.storedInteractions {
@@ -64,10 +63,10 @@ class GIFImageNode: ASControlNode {
         }
     }
 
-    func animate(withGIFData data: Data) {
+    func animate(withData data: Data) {
         if let imageView {
             Task { @MainActor in
-                imageView.animate(withGIFData: data)
+                imageView.animate(withData: data)
             }
         } else {
             animatedData = data
@@ -79,7 +78,7 @@ class GIFImageNode: ASControlNode {
         animatedData = nil
 
         Task { @MainActor [weak imageView] in
-            imageView?.stopAnimatingGIF()
+            imageView?.stopAnimatingImage()
             imageView?.image = nil
         }
     }

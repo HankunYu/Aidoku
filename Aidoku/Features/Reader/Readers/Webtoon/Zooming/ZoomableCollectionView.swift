@@ -6,7 +6,6 @@
 //
 
 import AsyncDisplayKit
-import Gifu
 import SwiftUI
 import UIKit
 import VisionKit
@@ -99,7 +98,7 @@ class ZoomableCollectionView: ASDisplayNode {
             lazy var origType = String(describing: type(of: orig))
             if orig is DictionaryOverlayButton {
                 return orig
-            } else if orig is _ASDisplayView || orig is GIFImageView {
+            } else if orig is _ASDisplayView || orig is AnimatedImageView {
                 if lastHit.timeIntervalSinceNow <= -0.1 {
                     if !tempGestures.isEmpty {
                         tempGestures.forEach {
