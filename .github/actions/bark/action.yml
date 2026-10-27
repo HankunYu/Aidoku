@@ -1,0 +1,50 @@
+name: Bark notification
+description: Send a push notification to an iPhone through the Bark app.
+
+inputs:
+  key:
+    description: Bark device key
+    required: true
+  title:
+    description: Notification title
+    required: true
+  body:
+    description: Notification body
+    required: true
+  url:
+    description: URL opened when tapping the notification
+    required: false
+    default: ""
+  server:
+    description: Bark server, override when self-hosting
+    required: false
+    default: https://api.day.app
+
+runs:
+  using: composite
+  steps:
+    - name: Send notification
+      shell: bash
+      env:
+        BARK_KEY: ${{ inputs.key }}
+        BARK_TITLE: ${{ inputs.title }}
+        BARK_BODY: ${{ inputs.body }}
+        BARK_URL: ${{ inputs.url }}
+        BARK_SERVER: ${{ inputs.server }}
+      run: |
+        if [ -z "$BARK_KEY" ]; then
+          echo "::warning::BARK_KEY is not set, skipping notification"
+          exit 0
+        fi
+        payload=$(jq -n \
+          --arg key "$BARK_KEY" \
+          --arg title "$BARK_TITLE" \
+          --arg body "$BARK_BODY" \
+          --arg url "$BARK_URL" \
+          '{device_key: $key, title: $title, body: $body, group: "Aidoku CI"}
+            + (if $url == "" then {} else {url: $url} end)')
+        # a failed notification shouldn't fail the workflow
+        curl -sS --fail -X POST "$BARK_SERVER/push" \
+          -H "Content-Type: application/json; charset=utf-8" \
+          -d "$payload" > /dev/null \
+          || echo "::warning::Bark notification failed"

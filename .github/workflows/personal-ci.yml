@@ -1,0 +1,70 @@
+name: "Personal: CI"
+
+# Builds and runs unit tests for feature branches and pull requests, without signing.
+
+on:
+  push:
+    branches:
+      - "feat/**"
+      - "fix/**"
+      - "ci/**"
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: xcode-27
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: SourcePackages
+          key: spm-${{ hashFiles('Aidoku.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-
+
+      - name: Build and test
+        run: |
+          xcodebuild test \
+            -project Aidoku.xcodeproj -scheme Aidoku \
+            -skipPackagePluginValidation -skipMacroValidation \
+            -clonedSourcePackagesDirPath SourcePackages \
+            -destination 'platform=iOS Simulator,name=iPhone 18 Pro' \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee "$RUNNER_TEMP/test.log" | grep -E "error:|warning: .*swiftlint|Test case|\*\* TEST" || true
+          grep -q "\*\* TEST SUCCEEDED \*\*" "$RUNNER_TEMP/test.log"
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-log
+          path: ${{ runner.temp }}/test.log
+
+      - name: Notify failure
+        if: failure()
+        uses: ./.github/actions/bark
+        with:
+          key: ${{ secrets.BARK_KEY }}
+          title: "Aidoku CI 失败：${{ github.ref_name }}"
+          body: "编译或单元测试未通过，点击查看日志"
+          url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Notify success
+        if: success()
+        uses: ./.github/actions/bark
+        with:
+          key: ${{ secrets.BARK_KEY }}
+          title: "Aidoku CI 通过：${{ github.ref_name }}"
+          body: "编译和单元测试全部通过"
+          url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
