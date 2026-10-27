@@ -6,7 +6,6 @@
 //
 
 import AidokuRunner
-import Gifu
 import Nuke
 import UIKit
 
@@ -40,7 +39,7 @@ class MangaGridCell: UICollectionViewCell {
         set { badgeView.badgeNumber2 = newValue }
     }
 
-    let imageView = GIFImageView()
+    let imageView = AnimatedImageView()
     private let titleLabel = UILabel()
     private let overlayView = UIView()
     private let gradient = CAGradientLayer()
@@ -181,6 +180,7 @@ class MangaGridCell: UICollectionViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        imageView.stopAnimatingImage()
         imageView.image = UIImage(named: "MangaPlaceholder")
         imageTask?.cancel()
         imageTask = nil
@@ -243,7 +243,7 @@ extension MangaGridCell {
             return
         }
 
-        self.imageView.stopAnimatingGIF()
+        self.imageView.stopAnimatingImage()
 
         let source: AidokuRunner.Source? = if let sourceKey = identifier?.sourceKey {
             await SourceManager.shared.source(for: sourceKey)
@@ -292,8 +292,8 @@ extension MangaGridCell {
                                 self.imageView.image = response.image
                             }
                         }
-                        if response.container.type == .gif, let data = response.container.data {
-                            self.imageView.animate(withGIFData: data)
+                        if let data = response.container.animatedImageData {
+                            self.imageView.animate(withData: data)
                         }
                     }
                 case .failure(let error):

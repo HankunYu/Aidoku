@@ -7,7 +7,6 @@
 
 import AidokuRunner
 import AsyncDisplayKit
-import Gifu
 import Nuke
 import SwiftUI
 import Vision
@@ -391,8 +390,8 @@ extension ReaderWebtoonPageNode {
             let response = try await imageTask.response
             guard !Task.isCancelled else { return }
             image = response.image
-            if response.container.type == .gif, let data = response.container.data {
-                imageNode.animate(withGIFData: data)
+            if let data = response.container.animatedImageData {
+                imageNode.animate(withData: data)
             }
             if isNodeLoaded {
                 displayPage()
@@ -414,8 +413,8 @@ extension ReaderWebtoonPageNode {
 
                             if let result {
                                 self.image = result.image
-                                if result.type == .gif, let data = result.data {
-                                    self.imageNode.animate(withGIFData: data)
+                                if let data = result.animatedImageData {
+                                    self.imageNode.animate(withData: data)
                                 }
                                 if self.isNodeLoaded {
                                     self.displayPage()

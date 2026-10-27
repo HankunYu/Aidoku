@@ -6,7 +6,6 @@
 //
 
 import AidokuRunner
-import Gifu
 import MarkdownUI
 import Nuke
 import SwiftUI
@@ -19,7 +18,7 @@ class ReaderPageView: UIView {
 
     private let temporaryPageStore: ReaderTemporaryPageStore
 
-    let imageView = GIFImageView()
+    let imageView = AnimatedImageView()
     let progressView = CircularProgressView(frame: CGRect(x: 0, y: 0, width: 40, height: 40))
 
     @available(iOS 16.0, *)
@@ -282,7 +281,7 @@ extension ReaderPageView {
             guard let response else {
                 return false
             }
-            setPageImage(response.image, gifData: response.container.type == .gif ? response.container.data : nil)
+            setPageImage(response.image, gifData: response.container.animatedImageData)
             completion?(true)
             return true
         } catch {
@@ -300,7 +299,7 @@ extension ReaderPageView {
                             result = nil
                     }
                     if let result {
-                        setPageImage(result.image, gifData: result.type == .gif ? result.data : nil)
+                        setPageImage(result.image, gifData: result.animatedImageData)
                         completion?(true)
                         return true
                     }
@@ -470,9 +469,10 @@ extension ReaderPageView {
     }
 
     func setPageImage(_ image: UIImage?, gifData: Data? = nil) {
+        imageView.stopAnimatingImage()
         imageView.image = image
         if let gifData {
-            imageView.animate(withGIFData: gifData)
+            imageView.animate(withData: gifData)
         }
         fixImageSize()
         startLiveTextAnalysis()
