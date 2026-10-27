@@ -1,0 +1,142 @@
+name: "Personal: Release to TestFlight"
+
+# Tests, archives and uploads the fork's main branch to TestFlight (internal testing only).
+#
+# Required secrets:
+#   ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8  App Store Connect API key (Admin role), .p8 file contents
+#   SIGNING_CERT_P12                      base64 .p12 holding both Apple Development and Apple Distribution identities
+#   SIGNING_CERT_PASSWORD                 password of the .p12
+#   BARK_KEY                              optional, Bark device key for notifications
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - ".github/workflows/personal-sync.yml"
+      - ".github/workflows/personal-ci.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: testflight
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  XCODE_FLAGS: -project Aidoku.xcodeproj -scheme Aidoku -skipPackagePluginValidation -skipMacroValidation -clonedSourcePackagesDirPath SourcePackages
+
+jobs:
+  release:
+    runs-on: xcode-27
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: SourcePackages
+          key: spm-${{ hashFiles('Aidoku.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-
+
+      - name: Run unit tests
+        run: |
+          xcodebuild test $XCODE_FLAGS \
+            -destination 'platform=iOS Simulator,name=iPhone 18 Pro' \
+            | tee "$RUNNER_TEMP/test.log" | grep -E "error:|Test case|\*\* TEST" || true
+          grep -q "\*\* TEST SUCCEEDED \*\*" "$RUNNER_TEMP/test.log"
+
+      - name: Set up signing
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          SIGNING_CERT_P12: ${{ secrets.SIGNING_CERT_P12 }}
+          SIGNING_CERT_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
+        run: |
+          # App Store Connect API key, used to manage provisioning profiles and upload
+          key_path="$RUNNER_TEMP/AuthKey_$ASC_KEY_ID.p8"
+          printf '%s' "$ASC_KEY_P8" > "$key_path"
+          echo "ASC_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+
+          # temporary keychain holding the development and distribution identities
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password=$(openssl rand -base64 24)
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          echo "$SIGNING_CERT_P12" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security import "$RUNNER_TEMP/signing.p12" -P "$SIGNING_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          rm "$RUNNER_TEMP/signing.p12"
+          security set-key-partition-list -S apple-tool:,apple: -k "$keychain_password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          echo "SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+
+      - name: Archive
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          build_number=$(date -u +%Y%m%d%H%M)
+          echo "BUILD_NUMBER=$build_number" >> "$GITHUB_ENV"
+          xcodebuild archive $XCODE_FLAGS \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/Aidoku.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            CURRENT_PROJECT_VERSION="$build_number" \
+            | tee "$RUNNER_TEMP/archive.log" | grep -E "error:|warning: .*[Ss]ign|\*\* ARCHIVE" || true
+          grep -q "\*\* ARCHIVE SUCCEEDED \*\*" "$RUNNER_TEMP/archive.log"
+          version=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleShortVersionString" "$RUNNER_TEMP/Aidoku.xcarchive/Info.plist")
+          echo "APP_VERSION=$version" >> "$GITHUB_ENV"
+          echo "COMMIT_SUMMARY=$(git log -1 --format='%h %s')" >> "$GITHUB_ENV"
+
+      - name: Upload to TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/Aidoku.xcarchive" \
+            -exportOptionsPlist .github/personal/ExportOptions.plist \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-logs
+          path: ${{ runner.temp }}/*.log
+          if-no-files-found: ignore
+
+      - name: Clean up signing
+        if: always()
+        run: |
+          [ -n "$SIGNING_KEYCHAIN" ] && security delete-keychain "$SIGNING_KEYCHAIN" || true
+          [ -n "$ASC_KEY_PATH" ] && rm -f "$ASC_KEY_PATH" || true
+
+      - name: Notify success
+        if: success()
+        uses: ./.github/actions/bark
+        with:
+          key: ${{ secrets.BARK_KEY }}
+          title: "Aidoku ${{ env.APP_VERSION }} (${{ env.BUILD_NUMBER }}) 已上传 TestFlight"
+          body: "${{ env.COMMIT_SUMMARY }}\n苹果处理完成后即可在 TestFlight 安装"
+          url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Notify failure
+        if: failure()
+        uses: ./.github/actions/bark
+        with:
+          key: ${{ secrets.BARK_KEY }}
+          title: "Aidoku TestFlight 发布失败"
+          body: "点击查看 GitHub Actions 日志"
+          url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

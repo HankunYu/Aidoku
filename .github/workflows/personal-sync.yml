@@ -1,0 +1,83 @@
+name: "Personal: Sync upstream"
+
+# Rebases the fork's main branch (personal commits) onto Aidoku/Aidoku main once a day.
+# The push uses SYNC_PAT so it can include upstream workflow changes and trigger the release workflow.
+
+on:
+  schedule:
+    - cron: "0 3 * * *" # 03:00 UTC daily
+  workflow_dispatch:
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_PAT }}
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/Aidoku/Aidoku.git
+          git fetch upstream main
+
+      - name: Rebase onto upstream
+        id: rebase
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          echo "old_head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "Already up to date with upstream"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          count=$(git rev-list --count HEAD..upstream/main)
+          {
+            echo "count=$count"
+            echo "summary<<EOF"
+            git log --format='• %s' HEAD..upstream/main | head -n 10
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          if ! git rebase upstream/main; then
+            echo "::error::Rebase onto upstream/main has conflicts, resolve them locally"
+            git status --short
+            git rebase --abort
+            exit 1
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Push
+        if: steps.rebase.outputs.changed == 'true'
+        run: git push --force-with-lease=main:${{ steps.rebase.outputs.old_head }} origin HEAD:main
+
+      - name: Notify synced
+        if: success() && steps.rebase.outputs.changed == 'true'
+        uses: ./.github/actions/bark
+        with:
+          key: ${{ secrets.BARK_KEY }}
+          title: "Aidoku 已同步官方 ${{ steps.rebase.outputs.count }} 个提交"
+          body: ${{ steps.rebase.outputs.summary }}
+          url: ${{ github.server_url }}/${{ github.repository }}/commits/main
+
+      - name: Notify failure
+        if: failure()
+        uses: ./.github/actions/bark
+        with:
+          key: ${{ secrets.BARK_KEY }}
+          title: "Aidoku 同步官方失败"
+          body: "rebase 有冲突或推送失败，需要在本地手动处理"
+          url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
